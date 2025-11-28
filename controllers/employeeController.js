@@ -1,0 +1,194 @@
+
+
+const Employee = require("../models/Employee");
+const BusinessUnit = require("../models/BusinessUnit");
+
+
+const buildAncestors = async (managerId) => {
+  if (!managerId) return [];
+
+  const manager = await Employee.findById(managerId).lean();
+  if (!manager) return [];
+
+  const ancestors = [manager._id];
+
+  if (Array.isArray(manager.ancestors) && manager.ancestors.length > 0) {
+    ancestors.push(...manager.ancestors);
+  }
+
+  return ancestors;
+};
+
+exports.upsertEmployee = async (req, res) => {
+  try {
+    // Extract logged-in user's ID from token (middleware attaches req.user)
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized. Invalid token." });
+    }
+
+    // Extract incoming fields
+    const {
+      employeeId,
+      employeeName,
+      employeeEmail,
+      contactNumber,
+      dob,
+      workLocation,
+      employmentType,
+      role,
+      managerId,
+      businessUnitId,
+      department,
+      team,
+      skills,
+      totalExperience,
+      previousProjects,
+      previousCompanies,
+      currentProjects,
+      isAvailable,
+      resumeFile,
+    } = req.body;
+
+    // ---------------- VALIDATIONS ----------------
+    if (!employeeId || !employeeName || !employeeEmail || !businessUnitId || !role) {
+      return res.status(400).json({
+        message: "Missing required fields (employeeId, name, email, businessUnitId, role)",
+      });
+    }
+
+    // Check BU exists
+    const buExists = await BusinessUnit.findById(businessUnitId);
+    if (!buExists) {
+      return res.status(404).json({ message: "Business Unit not found" });
+    }
+
+    // Check if employee already exists (based on email or employeeId)
+    const existingEmp = await Employee.findOne({
+      $or: [{ employeeId }, { employeeEmail }],
+    });
+
+    // If exists → ensure it's not a different user
+    if (existingEmp && existingEmp.userId.toString() !== userId) {
+      return res.status(409).json({
+        message: "Employee with same email or ID already exists",
+      });
+    }
+
+    // ---------------- BUILD ANCESTORS ----------------
+    let ancestors = [];
+
+    if (role === "BUH") {
+      ancestors = []; // top hierarchy
+    } else if (managerId) {
+      ancestors = await buildAncestors(managerId);
+    }
+
+    // ---------------- UPSERT PAYLOAD ----------------
+    const employeePayload = {
+      userId,
+      employeeId,
+      employeeName,
+      employeeEmail,
+      contactNumber,
+      dob,
+      workLocation,
+      employmentType,
+      role,
+      managerId: managerId || null,
+      businessUnitId,
+      department,
+      team,
+      skills,
+      totalExperience,
+      previousProjects,
+      previousCompanies,
+      currentProjects,
+      isAvailable,
+      ancestors,
+      resumeFile,
+    };
+
+    // ---------------- UPSERT ----------------
+    const employee = await Employee.findOneAndUpdate(
+      { userId },                  // each user may have only one employee profile
+      employeePayload,
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+
+    res.status(200).json({
+      message: existingEmp ? "Employee updated successfully" : "Employee created successfully",
+      employee,
+    });
+
+  } catch (error) {
+    console.error("Error in upsertEmployee:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+
+
+exports.getEmployeesByRole = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized. Invalid token." });
+    }
+
+    // Get logged-in employee details
+    const loggedEmp = await Employee.findOne({ userId });
+    if (!loggedEmp) {
+      return res.status(404).json({ message: "Employee profile not found" });
+    }
+
+    const { role, _id: empId, businessUnitId } = loggedEmp;
+
+    let employees = [];
+
+    // ------------------ ROLE BASED DATA FETCHING ------------------ //
+
+    // 1️⃣ BUH → All employees in same BU except himself
+    if (role === "BUH") {
+      employees = await Employee.find({
+        businessUnitId,
+        _id: { $ne: empId },
+      })
+        .select("_id employeeId employeeName employeeEmail role managerId ancestors")
+        .lean();
+    }
+
+    // 2️⃣ AM → All RM + EMP who fall under AM (meaning AM is mentor/ancestor)
+    else if (role === "AM") {
+      employees = await Employee.find({
+        ancestors: empId, // anyone whose chain contains AM
+      })
+        .select("_id employeeId employeeName employeeEmail role managerId ancestors")
+        .lean();
+    }
+
+    // 3️⃣ RM → Direct employees only (managerId = RM)
+    else if (role === "RM") {
+      employees = await Employee.find({
+        managerId: empId, // direct reporting
+      })
+        .select("_id employeeId employeeName employeeEmail role managerId ancestors")
+        .lean();
+    }
+
+    // 4️⃣ EMP → No employees under him
+    else {
+      employees = []; // empty
+    }
+
+    return res.status(200).json({
+      message: "Employees fetched successfully",
+      count: employees.length,
+      employees,
+    });
+
+  } catch (err) {
+    console.error("Error fetching employees:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};

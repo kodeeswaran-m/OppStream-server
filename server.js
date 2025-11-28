@@ -5,6 +5,8 @@ const morgan=require("morgan")
 const cors = require('cors');
 const connectDB = require('./config/db');
 const authRoutes = require('./routes/authRoutes');
+const adminRoutes = require('./routes/adminRoutes');
+const employeeRoutes = require('./routes/employeeRoute');
 
 const app = express();
 
@@ -16,6 +18,9 @@ app.use(cors({ origin: 'http://localhost:5173', credentials: true }));  // Allow
 connectDB();
 
 app.use('/api/auth', authRoutes);
+app.use('/api/business-units', adminRoutes);
+app.use('/api/employee', employeeRoutes);
+
 
 
 const PORT = process.env.PORT || 5000;
