@@ -7,5 +7,6 @@ const employeeController = require("../controllers/employeeController");
 // CREATE or UPDATE Employee
 router.post("/upsert", authMiddleware, employeeController.upsertEmployee);
 router.post("/getEmpByRole", authMiddleware, employeeController.getEmployeesByRole);
+router.get("/getManagers", authMiddleware, employeeController.getManagersList);
 
 module.exports = router

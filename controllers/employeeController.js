@@ -128,7 +128,6 @@ exports.upsertEmployee = async (req, res) => {
 };
 
 
-
 exports.getEmployeesByRole = async (req, res) => {
   try {
     const userId = req.user?.id;
@@ -190,5 +189,78 @@ exports.getEmployeesByRole = async (req, res) => {
   } catch (err) {
     console.error("Error fetching employees:", err);
     res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+exports.getManagersList = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const userRole = req.user?.role; // roles: employee, reporting manager, associate manager, VP
+
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized. Invalid token." });
+    }
+
+    // Fetch the employee profile for the logged-in user
+    const loggedEmp = await Employee.findOne({ userId });
+    if (!loggedEmp) {
+      return res.status(404).json({ message: "Employee profile not found" });
+    }
+
+    const empRole = loggedEmp.role; // EMP / RM / AM / BUH
+    let targetRole = null;
+
+    // ------------------ ROLE MAPPING LOGIC ------------------
+
+    /** 
+     * EMP or userRole = employee → fetch RM
+     */ 
+    if (empRole === "EMP" || userRole === "employee") {
+      targetRole = "RM";
+    }
+
+    /**
+     * RM or userRole = reporting manager → fetch AM
+     */
+    else if (empRole === "RM" || userRole === "reporting manager") {
+      targetRole = "AM";
+    }
+
+    /**
+     * AM or userRole = associate manager → fetch BUH
+     */
+    else if (empRole === "AM" || userRole === "associate manager") {
+      targetRole = "BUH";
+    }
+
+    /**
+     * BUH or userRole = VP → head of BU → no managers above him
+     */
+    else if (empRole === "BUH" || userRole === "VP") {
+      return res.status(200).json({
+        message: "This role has no managers above them",
+        managers: [],
+      });
+    }
+
+    // If something unexpected happens
+    if (!targetRole) {
+      return res.status(400).json({ message: "Unable to determine manager role" });
+    }
+
+    // ------------------ QUERY EMPLOYEES ------------------
+    const managers = await Employee.find({ role: targetRole })
+      .select("_id employeeId employeeName employeeEmail role businessUnitId")
+      .lean();
+
+    return res.status(200).json({
+      message: `Managers with role ${targetRole} fetched successfully`,
+      count: managers.length,
+      managers,
+    });
+
+  } catch (error) {
+    console.error("Error fetching managers:", error);
+    return res.status(500).json({ message: "Internal server error" });
   }
 };
