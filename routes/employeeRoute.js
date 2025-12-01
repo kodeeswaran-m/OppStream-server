@@ -8,5 +8,6 @@ const employeeController = require("../controllers/employeeController");
 router.post("/upsert", authMiddleware, employeeController.upsertEmployee);
 router.post("/getEmpByRole", authMiddleware, employeeController.getEmployeesByRole);
 router.get("/getManagers", authMiddleware, employeeController.getManagersList);
+router.get("/getEmployeeByUserId", authMiddleware, employeeController.getLoggedInEmployee);
 
 module.exports = router

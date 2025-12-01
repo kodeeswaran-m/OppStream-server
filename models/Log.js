@@ -31,7 +31,7 @@ const logSchema = new Schema(
       meetingType: String,
       meetingDate: Date,
       meetingScreenshot: String,
-      audioVideo: String,
+      // audioVideo: String,
       peoplePresent: [String],
     },
 

@@ -264,3 +264,33 @@ exports.getManagersList = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
+
+
+exports.getLoggedInEmployee = async (req, res) => {
+  try {
+    const userId = req.user?.id; // Extracted from JWT in authMiddleware
+
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized. Invalid token." });
+    }
+
+    // Fetch employee using the linked userId
+    const employee = await Employee.findOne({ userId })
+      .populate("managerId", "employeeName employeeEmail role")
+      .populate("businessUnitId", "name")
+      .lean();
+
+    if (!employee) {
+      return res.status(404).json({ message: "Employee profile not found" });
+    }
+
+    return res.status(200).json({
+      message: "Employee profile fetched successfully",
+      employee,
+    });
+
+  } catch (error) {
+    console.error("Error fetching logged-in employee:", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
