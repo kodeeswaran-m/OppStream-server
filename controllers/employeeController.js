@@ -1,5 +1,4 @@
-
-
+const Log = require("../models/Log");
 const Employee = require("../models/Employee");
 const BusinessUnit = require("../models/BusinessUnit");
 
@@ -292,5 +291,136 @@ exports.getLoggedInEmployee = async (req, res) => {
   } catch (error) {
     console.error("Error fetching logged-in employee:", error);
     return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+
+exports.createLog = async (req, res) => {
+  try {
+    // STEP 1: FIND EMPLOYEE PROFILE
+    console.log("user",req.user.id );
+    const employee = await Employee.findOne({ userId: req.user.id });
+    console.log("emp", employee);
+    if (!employee) {
+      return res.status(404).json({ message: "Employee not found" });
+    }
+console.log("req.body",req.body);
+    // STEP 2: BUILD visibleTo USING EMPLOYEE + ANCESTORS
+    const visibleTo = [employee._id, ...employee.ancestors];
+
+    // STEP 3: Extract all fields from body
+    const {
+      requirementType,
+
+      // NN Section
+      nnDetails,
+
+      // Opp From
+      oppFrom,
+
+      // Opp To
+      oppTo,
+
+      // Timeline
+      timeline,
+    } = req.body;
+
+    // STEP 4: Prepare Log Payload
+    let logPayload = {
+      createdBy: employee._id,
+      visibleTo,
+      requirementType,
+      timeline,
+    };
+
+    // -------------------------------
+    // IF NN SECTION
+    // -------------------------------
+    if (requirementType === "NN") {
+      logPayload.nnDetails = {
+        description: nnDetails?.description,
+        clientName: nnDetails?.clientName,
+        source: nnDetails?.source,
+        oppFrom: nnDetails?.oppFrom,
+      };
+    }
+
+    // -------------------------------
+    // IF EE / EN SECTION → oppFrom
+    // -------------------------------
+    if (requirementType === "EE" || requirementType === "EN") {
+      logPayload.oppFrom = {
+        projectName: oppFrom?.projectName,
+        clientName: oppFrom?.clientName,
+        projectCode: oppFrom?.projectCode,
+        urgency: oppFrom?.urgency,
+        meetingType: oppFrom?.meetingType,
+        meetingDate: oppFrom?.meetingDate,
+        meetingScreenshot: oppFrom?.meetingScreenshot, // cloudinary URL
+        peoplePresent: oppFrom?.peoplePresent || [],
+      };
+    }
+
+    // -------------------------------
+    // OPP TO SECTION (Always Applicable)
+    // -------------------------------
+    logPayload.oppTo = {
+      technologyRequired: oppTo?.technologyRequired || [],
+      techRows: oppTo?.techRows || [],
+      totalPersons: oppTo?.totalPersons,
+      category: oppTo?.category,
+      shortDescription: oppTo?.shortDescription,
+      detailedNotes: oppTo?.detailedNotes,
+    };
+
+    // STEP 5: Save log
+    const newLog = new Log(logPayload);
+    await newLog.save();
+
+    return res.status(201).json({
+      message: "Log created successfully",
+      log: newLog,
+    });
+
+  } catch (error) {
+    console.error("Error creating log:", error);
+    return res.status(500).json({
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
+exports.getVisibleLogs = async (req, res) => {
+  try {
+    // STEP 1: Identify the logged-in employee
+    const employee = await Employee.findOne({ userId: req.user.id });
+
+    if (!employee) {
+      return res.status(404).json({ message: "Employee not found" });
+    }
+
+    // STEP 2: The list of IDs that determine visibility
+    const visibleToIds = [employee._id, ...employee.ancestors];
+
+    // STEP 3: Fetch logs where visibleTo contains ANY of these IDs
+    const logs = await Log.find({
+      visibleTo: { $in: visibleToIds }
+    })
+      .populate("createdBy", "employeeName employeeId role team")
+      .sort({ createdAt: -1 });
+console.log("logs",logs);
+    return res.status(200).json({
+      success: true,
+      count: logs.length,
+      logs,
+    });
+
+  } catch (error) {
+    console.error("Error fetching logs:", error);
+    return res.status(500).json({
+      message: "Server error",
+      error: error.message,
+    });
   }
 };
