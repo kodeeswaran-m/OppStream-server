@@ -2,7 +2,6 @@ const Log = require("../models/Log");
 const Employee = require("../models/Employee");
 const BusinessUnit = require("../models/BusinessUnit");
 
-
 const buildAncestors = async (managerId) => {
   if (!managerId) return [];
 
@@ -50,9 +49,16 @@ exports.upsertEmployee = async (req, res) => {
     } = req.body;
 
     // ---------------- VALIDATIONS ----------------
-    if (!employeeId || !employeeName || !employeeEmail || !businessUnitId || !role) {
+    if (
+      !employeeId ||
+      !employeeName ||
+      !employeeEmail ||
+      !businessUnitId ||
+      !role
+    ) {
       return res.status(400).json({
-        message: "Missing required fields (employeeId, name, email, businessUnitId, role)",
+        message:
+          "Missing required fields (employeeId, name, email, businessUnitId, role)",
       });
     }
 
@@ -110,22 +116,22 @@ exports.upsertEmployee = async (req, res) => {
 
     // ---------------- UPSERT ----------------
     const employee = await Employee.findOneAndUpdate(
-      { userId },                  // each user may have only one employee profile
+      { userId }, // each user may have only one employee profile
       employeePayload,
       { new: true, upsert: true, setDefaultsOnInsert: true }
     );
 
     res.status(200).json({
-      message: existingEmp ? "Employee updated successfully" : "Employee created successfully",
+      message: existingEmp
+        ? "Employee updated successfully"
+        : "Employee created successfully",
       employee,
     });
-
   } catch (error) {
     console.error("Error in upsertEmployee:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 };
-
 
 exports.getEmployeesByRole = async (req, res) => {
   try {
@@ -152,7 +158,9 @@ exports.getEmployeesByRole = async (req, res) => {
         businessUnitId,
         _id: { $ne: empId },
       })
-        .select("_id employeeId employeeName employeeEmail role managerId ancestors")
+        .select(
+          "_id employeeId employeeName employeeEmail role managerId ancestors"
+        )
         .lean();
     }
 
@@ -161,7 +169,9 @@ exports.getEmployeesByRole = async (req, res) => {
       employees = await Employee.find({
         ancestors: empId, // anyone whose chain contains AM
       })
-        .select("_id employeeId employeeName employeeEmail role managerId ancestors")
+        .select(
+          "_id employeeId employeeName employeeEmail role managerId ancestors"
+        )
         .lean();
     }
 
@@ -170,7 +180,9 @@ exports.getEmployeesByRole = async (req, res) => {
       employees = await Employee.find({
         managerId: empId, // direct reporting
       })
-        .select("_id employeeId employeeName employeeEmail role managerId ancestors")
+        .select(
+          "_id employeeId employeeName employeeEmail role managerId ancestors"
+        )
         .lean();
     }
 
@@ -184,7 +196,6 @@ exports.getEmployeesByRole = async (req, res) => {
       count: employees.length,
       employees,
     });
-
   } catch (err) {
     console.error("Error fetching employees:", err);
     res.status(500).json({ message: "Internal server error" });
@@ -211,31 +222,28 @@ exports.getManagersList = async (req, res) => {
 
     // ------------------ ROLE MAPPING LOGIC ------------------
 
-    /** 
+    /**
      * EMP or userRole = employee → fetch RM
-     */ 
+     */
     if (empRole === "EMP" || userRole === "employee") {
       targetRole = "RM";
-    }
+    } else if (empRole === "RM" || userRole === "reporting manager") {
 
     /**
      * RM or userRole = reporting manager → fetch AM
      */
-    else if (empRole === "RM" || userRole === "reporting manager") {
       targetRole = "AM";
-    }
+    } else if (empRole === "AM" || userRole === "associate manager") {
 
     /**
      * AM or userRole = associate manager → fetch BUH
      */
-    else if (empRole === "AM" || userRole === "associate manager") {
       targetRole = "BUH";
-    }
+    } else if (empRole === "BUH" || userRole === "VP") {
 
     /**
      * BUH or userRole = VP → head of BU → no managers above him
      */
-    else if (empRole === "BUH" || userRole === "VP") {
       return res.status(200).json({
         message: "This role has no managers above them",
         managers: [],
@@ -244,26 +252,26 @@ exports.getManagersList = async (req, res) => {
 
     // If something unexpected happens
     if (!targetRole) {
-      return res.status(400).json({ message: "Unable to determine manager role" });
+      return res
+        .status(400)
+        .json({ message: "Unable to determine manager role" });
     }
-
+    console.log("target role", targetRole);
     // ------------------ QUERY EMPLOYEES ------------------
     const managers = await Employee.find({ role: targetRole })
       .select("_id employeeId employeeName employeeEmail role businessUnitId")
       .lean();
-
+    console.log("managers", managers);
     return res.status(200).json({
       message: `Managers with role ${targetRole} fetched successfully`,
       count: managers.length,
       managers,
     });
-
   } catch (error) {
     console.error("Error fetching managers:", error);
     return res.status(500).json({ message: "Internal server error" });
   }
 };
-
 
 exports.getLoggedInEmployee = async (req, res) => {
   try {
@@ -287,26 +295,22 @@ exports.getLoggedInEmployee = async (req, res) => {
       message: "Employee profile fetched successfully",
       employee,
     });
-
   } catch (error) {
     console.error("Error fetching logged-in employee:", error);
     return res.status(500).json({ message: "Internal server error" });
   }
 };
 
-
 exports.createLog = async (req, res) => {
   try {
     // STEP 1: FIND EMPLOYEE PROFILE
-    console.log("user",req.user.id );
     const employee = await Employee.findOne({ userId: req.user.id });
-    console.log("emp", employee);
     if (!employee) {
       return res.status(404).json({ message: "Employee not found" });
     }
-console.log("req.body",req.body);
+    console.log("req.body", employee.ancestors);
     // STEP 2: BUILD visibleTo USING EMPLOYEE + ANCESTORS
-    const visibleTo = [employee._id, ...employee.ancestors];
+    const visibleTo = [...employee.ancestors];
 
     // STEP 3: Extract all fields from body
     const {
@@ -381,7 +385,6 @@ console.log("req.body",req.body);
       message: "Log created successfully",
       log: newLog,
     });
-
   } catch (error) {
     console.error("Error creating log:", error);
     return res.status(500).json({
@@ -393,29 +396,55 @@ console.log("req.body",req.body);
 
 exports.getVisibleLogs = async (req, res) => {
   try {
-    // STEP 1: Identify the logged-in employee
+    // STEP 1: Find logged-in employee using req.user.id
     const employee = await Employee.findOne({ userId: req.user.id });
 
     if (!employee) {
       return res.status(404).json({ message: "Employee not found" });
     }
 
-    // STEP 2: The list of IDs that determine visibility
-    const visibleToIds = [employee._id, ...employee.ancestors];
-
-    // STEP 3: Fetch logs where visibleTo contains ANY of these IDs
+    // STEP 2: Fetch logs where ONLY the logged-in employee is in visibleTo
     const logs = await Log.find({
-      visibleTo: { $in: visibleToIds }
+      createdBy:  employee._id ,
     })
-      .populate("createdBy", "employeeName employeeId role team")
+      .populate("createdBy", "employeeName employeeId")
       .sort({ createdAt: -1 });
-console.log("logs",logs);
+
     return res.status(200).json({
       success: true,
       count: logs.length,
       logs,
     });
+  } catch (error) {
+    console.error("Error fetching logs:", error);
+    return res.status(500).json({
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
 
+exports.getReportingEmployeeLogs = async (req, res) => {
+  try {
+    // STEP 1: Find logged-in employee using req.user.id
+    const employee = await Employee.findOne({ userId: req.user.id });
+
+    if (!employee) {
+      return res.status(404).json({ message: "Employee not found" });
+    }
+
+    // STEP 2: Fetch logs where ONLY the logged-in employee is in visibleTo
+    const logs = await Log.find({
+      visibleTo: { $in: [employee._id] },
+    })
+      .populate("createdBy", "employeeName employeeId employeeEmail role team")
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      count: logs.length,
+      logs,
+    });
   } catch (error) {
     console.error("Error fetching logs:", error);
     return res.status(500).json({
