@@ -10,11 +10,11 @@ const employeeSchema = new Schema(
       unique: true,
     },
     employeeId: { type: String, required: true, unique: true },
-    employeeName: { type: String, required: true }, 
+    employeeName: { type: String, required: true },
     employeeEmail: { type: String, required: true, unique: true },
     contactNumber: { type: String },
-    dob: { type: Date }, 
-    workLocation: { type: String }, 
+    dob: { type: Date },
+    workLocation: { type: String },
     employmentType: {
       type: String,
       enum: ["Full Time", "Intern", "Contract"],
@@ -53,18 +53,19 @@ const employeeSchema = new Schema(
       {
         skillName: { type: String },
         proficiencyLevel: { type: String },
-        experience: { type: Number }, 
-        // certifications: [String] 
+        experience: { type: Number },
+        // certifications: [String]
       },
     ],
-    totalExperience: { type: Number }, 
-    previousProjects: [{ type: String }], 
+    totalExperience: { type: Number },
+    previousProjects: [{ type: String }],
     previousCompanies: [{ type: String }],
-    currentProjects: [{ type: String }], 
+    currentProjects: [{ type: String }],
 
     isAvailable: { type: Boolean, default: true },
 
     resumeFile: { type: String }, // Cloudinary / AWS link
+
   },
 
   { timestamps: true }

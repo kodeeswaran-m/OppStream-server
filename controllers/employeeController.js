@@ -1,6 +1,9 @@
+
+const mongoose = require("mongoose");
 const Log = require("../models/Log");
 const Employee = require("../models/Employee");
 const BusinessUnit = require("../models/BusinessUnit");
+const { getApprovalFlow } = require("../utils/employeeUtils");
 
 const buildAncestors = async (managerId) => {
   if (!managerId) return [];
@@ -228,22 +231,19 @@ exports.getManagersList = async (req, res) => {
     if (empRole === "EMP" || userRole === "employee") {
       targetRole = "RM";
     } else if (empRole === "RM" || userRole === "reporting manager") {
-
-    /**
-     * RM or userRole = reporting manager → fetch AM
-     */
+      /**
+       * RM or userRole = reporting manager → fetch AM
+       */
       targetRole = "AM";
     } else if (empRole === "AM" || userRole === "associate manager") {
-
-    /**
-     * AM or userRole = associate manager → fetch BUH
-     */
+      /**
+       * AM or userRole = associate manager → fetch BUH
+       */
       targetRole = "BUH";
     } else if (empRole === "BUH" || userRole === "VP") {
-
-    /**
-     * BUH or userRole = VP → head of BU → no managers above him
-     */
+      /**
+       * BUH or userRole = VP → head of BU → no managers above him
+       */
       return res.status(200).json({
         message: "This role has no managers above them",
         managers: [],
@@ -303,43 +303,27 @@ exports.getLoggedInEmployee = async (req, res) => {
 
 exports.createLog = async (req, res) => {
   try {
-    // STEP 1: FIND EMPLOYEE PROFILE
-    const employee = await Employee.findOne({ userId: req.user.id });
+    const employee = await Employee.findOne({ userId: req.user.id }).populate(
+      "ancestors",
+      "employeeName role employeeId"
+    );
     if (!employee) {
       return res.status(404).json({ message: "Employee not found" });
     }
-    console.log("req.body", employee.ancestors);
-    // STEP 2: BUILD visibleTo USING EMPLOYEE + ANCESTORS
+    // console.log("req.body", employee.ancestors);
     const visibleTo = [...employee.ancestors];
+    const approvals = getApprovalFlow(employee);
 
-    // STEP 3: Extract all fields from body
-    const {
-      requirementType,
-
-      // NN Section
-      nnDetails,
-
-      // Opp From
-      oppFrom,
-
-      // Opp To
-      oppTo,
-
-      // Timeline
-      timeline,
-    } = req.body;
-
-    // STEP 4: Prepare Log Payload
+    const { requirementType, nnDetails, oppFrom, oppTo, timeline } = req.body;
+    console.log("approvals", approvals);
     let logPayload = {
       createdBy: employee._id,
       visibleTo,
       requirementType,
+      approvals,
       timeline,
     };
 
-    // -------------------------------
-    // IF NN SECTION
-    // -------------------------------
     if (requirementType === "NN") {
       logPayload.nnDetails = {
         description: nnDetails?.description,
@@ -349,9 +333,6 @@ exports.createLog = async (req, res) => {
       };
     }
 
-    // -------------------------------
-    // IF EE / EN SECTION → oppFrom
-    // -------------------------------
     if (requirementType === "EE" || requirementType === "EN") {
       logPayload.oppFrom = {
         projectName: oppFrom?.projectName,
@@ -360,14 +341,11 @@ exports.createLog = async (req, res) => {
         urgency: oppFrom?.urgency,
         meetingType: oppFrom?.meetingType,
         meetingDate: oppFrom?.meetingDate,
-        meetingScreenshot: oppFrom?.meetingScreenshot, // cloudinary URL
+        meetingScreenshot: oppFrom?.meetingScreenshot,
         peoplePresent: oppFrom?.peoplePresent || [],
       };
     }
 
-    // -------------------------------
-    // OPP TO SECTION (Always Applicable)
-    // -------------------------------
     logPayload.oppTo = {
       technologyRequired: oppTo?.technologyRequired || [],
       techRows: oppTo?.techRows || [],
@@ -394,6 +372,245 @@ exports.createLog = async (req, res) => {
   }
 };
 
+exports.updateApprovalStatus = async (req, res) => {
+  try {
+    const { logId } = req.params;
+    const { status } = req.body; // APPROVED / REJECTED
+
+    if (!["APPROVED", "REJECTED"].includes(status)) {
+      return res.status(400).json({ message: "Invalid approval status" });
+    }
+
+    // STEP 1: Get logged-in employee (approver)
+    const approver = await Employee.findOne({ userId: req.user.id });
+    if (!approver) {
+      return res.status(404).json({ message: "Employee not found" });
+    }
+
+    // STEP 2: Find log
+    const log = await Log.findById(logId);
+    if (!log) {
+      return res.status(404).json({ message: "Log not found" });
+    }
+
+    // STEP 3: Check if this employee is part of approval chain
+    const approvalEntry = log.approvals.find(
+      (a) => a.approverId.toString() === approver._id.toString()
+    );
+
+    if (!approvalEntry) {
+      return res.status(403).json({
+        message: "You are not authorized to approve this log",
+      });
+    }
+
+    // STEP 4: Prevent double approval/rejection
+    if (approvalEntry.status !== "PENDING") {
+      return res.status(400).json({
+        message: `Already ${approvalEntry.status}`,
+      });
+    }
+
+    // STEP 5: Update approval fields
+    approvalEntry.status = status;
+    approvalEntry.approvedAt = new Date();
+    approvalEntry.approverName = approver.employeeName;
+
+    await log.save();
+
+    return res.status(200).json({
+      message: "Approval updated successfully",
+      log,
+    });
+  } catch (error) {
+    console.error("Approval update error:", error);
+    return res.status(500).json({
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
+exports.getPendingApprovals = async (req, res) => {
+  try {
+    // STEP 1: Logged-in employee
+    const employee = await Employee.findOne({ userId: req.user.id });
+
+    if (!employee) {
+      return res.status(404).json({ message: "Employee not found" });
+    }
+
+    const userId = employee._id;
+    const userRole = employee.role; // EMP, RM, AM, BUH
+
+    // STEP 2: Build role-based match conditions
+    let approvalMatch = {};
+
+    if (userRole === "RM") {
+      // RM only needs logs where RM approval is pending
+      approvalMatch = {
+        approvals: {
+          $elemMatch: {
+            role: "RM",
+            approverId: userId,
+            status: "PENDING",
+          },
+        },
+      };
+    }
+ 
+    if (userRole === "AM") {
+      // AM sees logs only if RM already approved AND AM is pending
+      approvalMatch = {
+        approvals: {
+          $all: [
+            { $elemMatch: { role: "RM", status: "APPROVED" } },
+            {
+              $elemMatch: { role: "AM", approverId: userId, status: "PENDING" },
+            },
+          ],
+        },
+      };
+    }
+
+    if (userRole === "BUH") {
+      // BUH sees logs only if RM & AM approved AND BUH is pending
+      approvalMatch = {
+        approvals: {
+          $all: [
+            { $elemMatch: { role: "RM", status: "APPROVED" } },
+            { $elemMatch: { role: "AM", status: "APPROVED" } },
+            {
+              $elemMatch: {
+                role: "BUH",
+                approverId: userId,
+                status: "PENDING",
+              },
+            },
+          ],
+        },
+      };
+    }
+
+    // STEP 3: Fetch logs + populate
+    const logs = await Log.find(approvalMatch)
+      .populate("createdBy", "employeeId employeeName role ancestors")
+      .populate("approvals.approverId", "employeeId employeeName role")
+      .sort({ createdAt: -1 });
+    console.log("pend logs", logs);
+    // STEP 4: Additionally filter logs based on ancestors rule
+    const finalLogs = logs.filter((log) =>
+      log.createdBy?.ancestors?.some(
+        (ancestorId) => ancestorId.toString() === userId.toString()
+      )
+    );
+
+    return res.status(200).json({
+      success: true,
+      count: finalLogs.length,
+      logs: finalLogs,
+    });
+  } catch (error) {
+    console.error("Error fetching pending approvals:", error);
+    return res.status(500).json({
+      message: "Server error",
+      error: error.message,
+    });
+  }
+}; 
+
+exports.getApprovedOrRejectedLogs = async (req, res) => {
+  try {
+    // 1️⃣ Find logged-in employee
+    const loggedInEmployee = await Employee.findOne({ userId: req.user.id });
+    if (!loggedInEmployee) {
+      return res.status(404).json({
+        success: false,
+        message: "Employee not found",
+      });
+    }
+
+    // 2️⃣ Fetch logs where this user is an approver
+    const logs = await Log.find({
+      approvals: {
+        $elemMatch: {
+          approverId: loggedInEmployee._id,     // user is an approver
+          status: { $in: ["APPROVED", "REJECTED"] }, // and has approved/rejected
+        }
+      }
+    })
+      .populate("createdBy", "employeeName employeeId role team")
+      .populate("approvals.approverId", "employeeName employeeId role")
+      .sort({ updatedAt: -1 });
+
+
+    return res.status(200).json({
+      success: true,
+      count: logs.length,
+      logs,
+    });
+
+  } catch (error) {
+    console.error("Error fetching approver logs:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
+// exports.getApprovedOrRejectedLogs = async (req, res) => {
+//   try {
+//     // 1️⃣ Find logged-in employee record
+//     const loggedInEmployee = await Employee.findOne({ userId: req.user.id });
+
+//     if (!loggedInEmployee) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Employee not found",
+//       });
+//     }
+
+//     // 2️⃣ Find employees under this user's hierarchy
+//     const employeesUnderUser = await Employee.find({
+//       ancestors: { $in: [loggedInEmployee._id] },
+//     }).select("_id");
+
+//     const employeeIds = employeesUnderUser.map((emp) => emp._id);
+
+//     if (employeeIds.length === 0) {
+//       return res.status(200).json({
+//         success: true,
+//         count: 0,
+//         logs: [],
+//         message: "No logs found under your reporting hierarchy.",
+//       });
+//     }
+
+//     // 3️⃣ Fetch logs where ANY approval is APPROVED or REJECTED
+//     const logs = await Log.find({
+//       createdBy: { $in: employeeIds },
+//       "approvals.status": { $in: ["APPROVED", "REJECTED"] }, // Correct filter
+//     })
+//       .populate("createdBy", "employeeName employeeId role team")
+//       .sort({ createdAt: -1 });
+
+//     return res.status(200).json({
+//       success: true,
+//       count: logs.length,
+//       logs,
+//     });
+//   } catch (error) {
+//     console.error("Error fetching ancestor logs:", error);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Server error",
+//       error: error.message,
+//     });
+//   }
+// };
+
 exports.getVisibleLogs = async (req, res) => {
   try {
     // STEP 1: Find logged-in employee using req.user.id
@@ -405,7 +622,7 @@ exports.getVisibleLogs = async (req, res) => {
 
     // STEP 2: Fetch logs where ONLY the logged-in employee is in visibleTo
     const logs = await Log.find({
-      createdBy:  employee._id ,
+      createdBy: employee._id,
     })
       .populate("createdBy", "employeeName employeeId")
       .sort({ createdAt: -1 });
@@ -449,6 +666,45 @@ exports.getReportingEmployeeLogs = async (req, res) => {
     console.error("Error fetching logs:", error);
     return res.status(500).json({
       message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
+exports.getLogById = async (req, res) => {
+  try {
+    const { logId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(logId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid log ID format",
+      });
+    }
+
+    const log = await Log.findById(logId)
+      .populate("createdBy", "employeeName employeeId role team")
+      .populate("visibleTo", "employeeName employeeId role")
+      .populate("approvals.approverId", "employeeName employeeId role");
+
+    if (!log) {
+      return res.status(404).json({
+        success: false,
+        message: "Log not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      log,
+    });
+
+  } catch (error) {
+    console.error("Error fetching log by ID:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error while fetching log",
       error: error.message,
     });
   }
