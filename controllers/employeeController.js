@@ -136,6 +136,8 @@ exports.upsertEmployee = async (req, res) => {
 exports.getEmployeesByRole = async (req, res) => {
   try {
     const userId = req.user?.id;
+    console.log("emp",userId);
+
     if (!userId) {
       return res.status(401).json({ message: "Unauthorized. Invalid token." });
     }
@@ -145,6 +147,7 @@ exports.getEmployeesByRole = async (req, res) => {
     if (!loggedEmp) {
       return res.status(404).json({ message: "Employee profile not found" });
     }
+    console.log("logged emp", loggedEmp);
 
     const { role, _id: empId, businessUnitId } = loggedEmp;
 
@@ -180,9 +183,9 @@ exports.getEmployeesByRole = async (req, res) => {
       employees = await Employee.find({
         managerId: empId, // direct reporting
       })
-        .select(
-          "_id employeeId employeeName employeeEmail role managerId ancestors"
-        )
+        // .select(
+        //   "_id employeeId employeeName employeeEmail role managerId ancestors"
+        // )
         .lean();
     }
 
@@ -190,6 +193,7 @@ exports.getEmployeesByRole = async (req, res) => {
     else {
       employees = []; // empty
     }
+    console.log("emp", employees, "role", role);
 
     return res.status(200).json({
       message: "Employees fetched successfully",
@@ -229,21 +233,21 @@ exports.getManagersList = async (req, res) => {
       targetRole = "RM";
     } else if (empRole === "RM" || userRole === "reporting manager") {
 
-    /**
-     * RM or userRole = reporting manager → fetch AM
-     */
+      /**
+       * RM or userRole = reporting manager → fetch AM
+       */
       targetRole = "AM";
     } else if (empRole === "AM" || userRole === "associate manager") {
 
-    /**
-     * AM or userRole = associate manager → fetch BUH
-     */
+      /**
+       * AM or userRole = associate manager → fetch BUH
+       */
       targetRole = "BUH";
     } else if (empRole === "BUH" || userRole === "VP") {
 
-    /**
-     * BUH or userRole = VP → head of BU → no managers above him
-     */
+      /**
+       * BUH or userRole = VP → head of BU → no managers above him
+       */
       return res.status(200).json({
         message: "This role has no managers above them",
         managers: [],
@@ -405,7 +409,7 @@ exports.getVisibleLogs = async (req, res) => {
 
     // STEP 2: Fetch logs where ONLY the logged-in employee is in visibleTo
     const logs = await Log.find({
-      createdBy:  employee._id ,
+      createdBy: employee._id,
     })
       .populate("createdBy", "employeeName employeeId")
       .sort({ createdAt: -1 });
