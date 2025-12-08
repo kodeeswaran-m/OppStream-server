@@ -164,9 +164,9 @@ exports.getEmployeesByRole = async (req, res) => {
         businessUnitId,
         _id: { $ne: empId },
       })
-        .select(
-          "_id employeeId employeeName employeeEmail role managerId ancestors"
-        )
+        // .select(
+        //   "_id employeeId employeeName employeeEmail role managerId ancestors"
+        // )
         .lean();
     }
 
@@ -175,9 +175,9 @@ exports.getEmployeesByRole = async (req, res) => {
       employees = await Employee.find({
         ancestors: empId, // anyone whose chain contains AM
       })
-        .select(
-          "_id employeeId employeeName employeeEmail role managerId ancestors"
-        )
+        // .select(
+        //   "_id employeeId employeeName employeeEmail role managerId ancestors"
+        // )
         .lean();
     }
 
@@ -564,57 +564,6 @@ exports.getApprovedOrRejectedLogs = async (req, res) => {
   }
 };
 
-// exports.getApprovedOrRejectedLogs = async (req, res) => {
-//   try {
-//     // 1️⃣ Find logged-in employee record
-//     const loggedInEmployee = await Employee.findOne({ userId: req.user.id });
-
-//     if (!loggedInEmployee) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Employee not found",
-//       });
-//     }
-
-//     // 2️⃣ Find employees under this user's hierarchy
-//     const employeesUnderUser = await Employee.find({
-//       ancestors: { $in: [loggedInEmployee._id] },
-//     }).select("_id");
-
-//     const employeeIds = employeesUnderUser.map((emp) => emp._id);
-
-//     if (employeeIds.length === 0) {
-//       return res.status(200).json({
-//         success: true,
-//         count: 0,
-//         logs: [],
-//         message: "No logs found under your reporting hierarchy.",
-//       });
-//     }
-
-//     // 3️⃣ Fetch logs where ANY approval is APPROVED or REJECTED
-//     const logs = await Log.find({
-//       createdBy: { $in: employeeIds },
-//       "approvals.status": { $in: ["APPROVED", "REJECTED"] }, // Correct filter
-//     })
-//       .populate("createdBy", "employeeName employeeId role team")
-//       .sort({ createdAt: -1 });
-
-//     return res.status(200).json({
-//       success: true,
-//       count: logs.length,
-//       logs,
-//     });
-//   } catch (error) {
-//     console.error("Error fetching ancestor logs:", error);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Server error",
-//       error: error.message,
-//     });
-//   }
-// };
-
 exports.getVisibleLogs = async (req, res) => {
   try {
     // STEP 1: Find logged-in employee using req.user.id
@@ -711,5 +660,184 @@ exports.getLogById = async (req, res) => {
       message: "Server error while fetching log",
       error: error.message,
     });
+  }
+};
+
+
+exports.getUserApprovalCounts = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // Find employee mapped to logged-in user
+    const employee = await Employee.findOne({ userId });
+    if (!employee) {
+      return res.status(404).json({ message: "Employee not found" });
+    }
+
+    const employeeId = employee._id;
+
+    // Find logs that contain this employee in approvals
+    const logs = await Log.find({
+      "approvals.approverId": employeeId,
+    });
+
+    let acceptedCount = 0;
+    let rejectedCount = 0;
+    let pendingCount = 0;
+
+    logs.forEach((log) => {
+      const approvals = log.approvals;
+
+      approvals.forEach((approval, index) => {
+        if (String(approval.approverId) !== String(employeeId)) return;
+
+        // --- ACCEPTED ---
+        if (approval.status === "APPROVED") {
+          acceptedCount++;
+        }
+
+        // --- REJECTED ---
+        if (approval.status === "REJECTED") {
+          rejectedCount++;
+        }
+
+        // --- PENDING WITH SPECIAL RULE ---
+        if (approval.status === "PENDING") {
+          const previousApprovals = approvals.slice(0, index);
+
+          // Previous approval must exist unless this is first approver
+          const allPrevApproved =
+            previousApprovals.length === 0 ||
+            previousApprovals.every((ap) => ap.status === "APPROVED");
+
+          if (allPrevApproved) {
+            pendingCount++;
+          }
+        }
+      });
+    });
+
+    return res.status(200).json({
+      success: true,
+      counts: {
+        accepted: acceptedCount,
+        rejected: rejectedCount,
+        pending: pendingCount,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching approval counts:", error);
+    return res.status(500).json({
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
+exports.getEmployeeCountsByRole = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const loggedEmp = await Employee.findOne({ userId });
+    if (!loggedEmp) {
+      return res.status(404).json({ message: "Employee profile not found" });
+    }
+
+    const { role, _id: empId, businessUnitId } = loggedEmp;
+
+    let employees = [];
+
+    // -----------------------------------------------------------------
+    // ROLE → Fetch allowed employees
+    // -----------------------------------------------------------------
+
+    if (role === "VP") {
+      // All employees except himself
+      employees = await Employee.find({ _id: { $ne: empId } }).lean();
+    }
+
+    else if (role === "BUH") {
+      employees = await Employee.find({
+        businessUnitId,
+        _id: { $ne: empId },
+      }).lean();
+    }
+
+    else if (role === "AM") {
+      employees = await Employee.find({
+        ancestors: empId,
+      }).lean();
+    }
+
+    else if (role === "RM") {
+      employees = await Employee.find({
+        managerId: empId,
+      }).lean();
+    }
+
+    else {
+      // EMP → no employees
+      return res.status(200).json({
+        success: true,
+        counts: {
+          total: 0,
+          associateManager: 0,
+          reportingManager: 0,
+          employee: 0,
+        },
+      });
+    }
+
+    // -----------------------------------------------------------------
+    // COUNT by Role
+    // -----------------------------------------------------------------
+
+    let total = employees.length;
+    let associateManager = employees.filter((e) => e.role === "AM").length;
+    let reportingManager = employees.filter((e) => e.role === "RM").length;
+    let employee = employees.filter((e) => e.role === "EMP").length;
+
+    // For VP & BUH → return all counts
+    if (role === "VP" || role === "BUH") {
+      return res.status(200).json({
+        success: true,
+        counts: {
+          total,
+          associateManager,
+          reportingManager,
+          employee,
+        },
+      });
+    }
+
+    // For AM → return RM + EMP only
+    if (role === "AM") {
+      return res.status(200).json({
+        success: true,
+        counts: {
+          total,
+          reportingManager,
+          employee,
+        },
+      });
+    }
+
+    // For RM → return only EMP
+    if (role === "RM") {
+      return res.status(200).json({
+        success: true,
+        counts: {
+          total,
+          employee,
+        },
+      });
+    }
+  } catch (err) {
+    console.error("Error in getEmployeeCountsByRole:", err);
+    res.status(500).json({ message: "Internal server error" });
   }
 };
