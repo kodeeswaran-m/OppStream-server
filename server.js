@@ -7,6 +7,8 @@ const connectDB = require('./config/db');
 const authRoutes = require('./routes/authRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const employeeRoutes = require('./routes/employeeRoute');
+const adminDashboardRoutes = require("./routes/adminDashboardRoutes")
+
 
 const app = express();
 
@@ -20,7 +22,8 @@ connectDB();
 app.use('/api/auth', authRoutes);
 app.use('/api/business-units', adminRoutes);
 app.use('/api/employee', employeeRoutes);
-
+app.use("/api/dashboard", require("./routes/dashboardRoutes"));
+app.use("/api/admin", adminDashboardRoutes);
 
 
 const PORT = process.env.PORT || 5000;

@@ -14,4 +14,11 @@ router.post(
 // GET ALL BUs
 router.get("/all", adminController.getAllBusinessUnits);
 
+router.get(
+  "/dashboard",
+  authMiddleware,   // Verify token
+  adminMiddleware,  // Check if user is admin
+  adminController.getDashboardData
+);
+
 module.exports = router;
