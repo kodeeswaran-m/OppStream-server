@@ -5,22 +5,54 @@ const {
   generateRefreshToken,
 } = require("../utils/jwtUtils");
 const jwt = require('jsonwebtoken');
+const Employee = require("../models/Employee");
 
 // Signup controller
+// exports.signup = async (req, res) => {
+//   const { username, email, password, confirmPassword, role } = req.body;
+//   console.log("signup data", username, email, password, confirmPassword, role);
+//   if (password !== confirmPassword) {
+//     return res.status(400).json({ message: "Passwords do not match" });
+//   }
+//   console.log("1");
+//   try {
+//     const existingUser = await User.findOne({ email });
+//     console.log("1.1", existingUser);
+//     if (existingUser) {
+//       return res.status(400).json({ message: "User already exists" });
+//     }
+//     console.log("2");
+//     const hashedPassword = await bcrypt.hash(password, 10);
+
+//     const newUser = new User({
+//       username,
+//       email,
+//       password: hashedPassword,
+//       role: role || "employee",
+//     });
+
+//     await newUser.save();
+
+//     return res.status(201).json({ message: "User created successfully" });
+//   } catch (err) {
+//     console.error(err);
+//     return res.status(500).json({ message: "Server error" });
+//   }
+// };
+
 exports.signup = async (req, res) => {
   const { username, email, password, confirmPassword, role } = req.body;
-  console.log("signup data", username, email, password, confirmPassword, role);
+
   if (password !== confirmPassword) {
     return res.status(400).json({ message: "Passwords do not match" });
   }
-  console.log("1");
+
   try {
     const existingUser = await User.findOne({ email });
-    console.log("1.1", existingUser);
     if (existingUser) {
       return res.status(400).json({ message: "User already exists" });
     }
-    console.log("2");
+
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const newUser = new User({
@@ -30,9 +62,44 @@ exports.signup = async (req, res) => {
       role: role || "employee",
     });
 
-    await newUser.save();
+    const savedUser = await newUser.save();
 
-    return res.status(201).json({ message: "User created successfully" });
+    // ------------------------------------------------------
+    //  ROLE-BASED AUTOMATIC EMPLOYEE CREATION
+    // ------------------------------------------------------
+
+    // Do NOT create employee if role = admin
+    if (savedUser.role !== "admin") {
+      
+      // Map User role → Employee role
+      const roleMap = {
+        employee: "EMP",
+        "reporting manager": "RM",
+        "associate manager": "AM",
+        VP: "BUH",
+      };
+
+      const employeeRole = roleMap[savedUser.role];
+
+      // Generate employeeId like EMP1234 (or your logic)
+      const employeeId = "ACE" + Math.floor(1000 + Math.random() * 9000);
+
+      await Employee.create({
+        userId: savedUser._id,
+        employeeId,
+        employeeName: savedUser.username,
+        employeeEmail: savedUser.email,
+        role: employeeRole,
+        businessUnitId: "692c3ab45f4e0d407efe63d2", // you can update based on UI
+        // ancestors: [],        // default empty
+      });
+    }
+
+    return res.status(201).json({
+      message: "User created successfully",
+      userId: savedUser._id,
+    });
+
   } catch (err) {
     console.error(err);
     return res.status(500).json({ message: "Server error" });

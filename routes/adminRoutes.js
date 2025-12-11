@@ -11,7 +11,19 @@ router.post(
   adminMiddleware,      // Check admin
   adminController.createBusinessUnit
 );
-// GET ALL BUs
+router.post(
+  "/createUser",
+  authMiddleware,       // Verify token
+  adminMiddleware,      // Check admin
+  adminController.createUser
+);
+
 router.get("/all", adminController.getAllBusinessUnits);
+router.get("/getAllUsers", adminController.getAllUsers);
+router.get("/getUserById/:userId", adminController.getUserById);
+router.get("/department-stats", adminController.getDepartmentStats);
+
+router.delete("/deleteUser/:userId", adminController.deleteUser);
+router.put("/updateUser/:userId", adminController.updateUser);
 
 module.exports = router;
