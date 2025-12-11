@@ -164,7 +164,9 @@ exports.getEmployeesByRole = async (req, res) => {
         businessUnitId,
         _id: { $ne: empId },
       })
-     
+        // .select(
+        //   "_id employeeId employeeName employeeEmail role managerId ancestors"
+        // )
         .lean();
     }
 
@@ -173,7 +175,9 @@ exports.getEmployeesByRole = async (req, res) => {
       employees = await Employee.find({
         ancestors: empId, // anyone whose chain contains AM
       })
-      
+        // .select(
+        //   "_id employeeId employeeName employeeEmail role managerId ancestors"
+        // )
         .lean();
     }
 
