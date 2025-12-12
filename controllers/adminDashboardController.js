@@ -32,7 +32,10 @@ exports.getAdminBusinessUnits = async (req, res) => {
 
 exports.getAdminLogs = async (req, res) => {
   try {
-    const logs = await Log.find().sort({ createdAt: -1 });
+    const logs = await Log.find()
+      .populate("createdBy", "employeeId employeeName role ancestors")
+      .sort({ createdAt: -1 })
+      .limit(5);
 
     res.status(200).json({
       message: "Logs fetched successfully",
@@ -49,7 +52,9 @@ exports.getDashboardStats = async (req, res) => {
     const totalEmployees = await Employee.countDocuments();
     const totalBusinessUnits = await BusinessUnit.countDocuments();
     const totalLogs = await Log.countDocuments();
-    const availableEmployees = await Employee.countDocuments({ status: "Available" });
+    const availableEmployees = await Employee.countDocuments({
+      status: "Available",
+    });
 
     res.status(200).json({
       totalEmployees,
