@@ -15,7 +15,7 @@ const app = express();
 app.use(express.json());
 app.use(cookieParser());
 app.use(morgan('dev'));
-app.use(cors({ origin: 'http://localhost:5173', credentials: true }));  // Allow frontend app to access cookies
+app.use(cors({ origin: 'https://opp-stream-client.vercel.app/', credentials: true }));  // Allow frontend app to access cookies
 
 connectDB();
 
