@@ -125,7 +125,7 @@ exports.login = async (req, res) => {
   res.cookie("rt", refreshToken, {
     httpOnly: true,
     secure: true,
-    sameSite: "strict",
+    sameSite: "none",
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 
@@ -171,6 +171,11 @@ exports.logout = async (req, res) => {
   const refreshToken = req.cookies.rt;
   await User.updateOne({ refreshToken }, { $unset: { refreshToken: "" } });
 
-  res.clearCookie("rt");
+  res.clearCookie("rt", {
+  httpOnly: true,
+  secure: true,
+  sameSite: "none",
+});
+
   return res.status(200).json({ message: "Logged out successfully" });
 };

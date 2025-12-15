@@ -14,12 +14,12 @@ const app = express();
 app.use(express.json());
 app.use(cookieParser());
 app.use(morgan("dev"));
-app.use(
-  cors({
-    origin: "https://opp-stream-client.vercel.app",
-    credentials: true,
-  })
-);
+const axiosInstance = axios.create({
+  baseURL: "https://oppstream-server.onrender.com",
+  withCredentials: true,
+  timeout: 15000,
+});
+
 
 app.options("*", cors());
 connectDB();
