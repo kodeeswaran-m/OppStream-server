@@ -20,8 +20,6 @@ const axiosInstance = axios.create({
   timeout: 15000,
 });
 
-
-app.options("*", cors());
 connectDB();
 
 app.use("/api/auth", authRoutes);
