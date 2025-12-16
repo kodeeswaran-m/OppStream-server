@@ -945,4 +945,46 @@ exports.getEmployeeCountsByRole = async (req, res) => {
 };
 
 
+exports.getLogsByEmployeeId = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // 1️⃣ Validate Mongo ObjectId
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: "Employee ID is required",
+      });
+    }
+
+    // 2️⃣ Check if employee exists
+    const employee = await Employee.findById(id);
+
+    if (!employee) {
+      return res.status(404).json({
+        success: false,
+        message: "Employee not found",
+      });
+    }
+
+    // 3️⃣ Fetch logs created by this employee
+    const logs = await Log.find({ createdBy: id })
+      .populate("createdBy", "employeeName employeeId role team department")
+      .populate("approvals.approverId", "employeeName employeeId role")
+      .sort({ createdAt: -1 });
+    console.log("logs", logs);
+    return res.status(200).json({
+      success: true,
+      count: logs.length,
+      logs,
+    });
+  } catch (error) {
+    console.error("Error fetching employee logs:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
 
