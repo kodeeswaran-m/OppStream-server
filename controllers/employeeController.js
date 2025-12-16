@@ -435,23 +435,123 @@ exports.updateApprovalStatus = async (req, res) => {
   }
 };
 
+// exports.getPendingApprovals = async (req, res) => {
+//   try {
+//     // STEP 1: Logged-in employee
+//     const employee = await Employee.findOne({ userId: req.user.id });
+
+//     if (!employee) {
+//       return res.status(404).json({ message: "Employee not found" });
+//     }
+
+//     const userId = employee._id;
+//     const userRole = employee.role; // EMP, RM, AM, BUH
+
+//     // STEP 2: Build role-based match conditions
+//     let approvalMatch = {};
+
+//     if (userRole === "RM") {
+//       // RM only needs logs where RM approval is pending
+//       approvalMatch = {
+//         approvals: {
+//           $elemMatch: {
+//             role: "RM",
+//             approverId: userId,
+//             status: "PENDING",
+//           },
+//         },
+//       };
+//     }
+ 
+//     if (userRole === "AM") {
+//       // AM sees logs only if RM already approved AND AM is pending
+//       approvalMatch = {
+//         approvals: {
+//           $all: [
+//             { $elemMatch: { role: "RM", status: "APPROVED" } },
+//             {
+//               $elemMatch: { role: "AM", approverId: userId, status: "PENDING" },
+//             },
+//           ],
+//         },
+//       };
+//     }
+
+//     if (userRole === "BUH") {
+//       // BUH sees logs only if RM & AM approved AND BUH is pending
+//       approvalMatch = {
+//         approvals: {
+//           $all: [
+//             { $elemMatch: { role: "RM", status: "APPROVED" } },
+//             { $elemMatch: { role: "AM", status: "APPROVED" } },
+//             {
+//               $elemMatch: {
+//                 role: "BUH",
+//                 approverId: userId,
+//                 status: "PENDING",
+//               },
+//             },
+//           ],
+//         },
+//       };
+//     }
+
+//     // STEP 3: Fetch logs + populate
+//     const logs = await Log.find(approvalMatch)
+//       .populate("createdBy", "employeeId employeeName role ancestors")
+//       .populate("approvals.approverId", "employeeId employeeName role")
+//       .sort({ createdAt: -1 });
+//     console.log("pend logs", logs);
+//     // STEP 4: Additionally filter logs based on ancestors rule
+//     const finalLogs = logs.filter((log) =>
+//       log.createdBy?.ancestors?.some(
+//         (ancestorId) => ancestorId.toString() === userId.toString()
+//       )
+//     );
+
+//     return res.status(200).json({
+//       success: true,
+//       count: finalLogs.length,
+//       logs: finalLogs,
+//     });
+//   } catch (error) {
+//     console.error("Error fetching pending approvals:", error);
+//     return res.status(500).json({
+//       message: "Server error",
+//       error: error.message,
+//     });
+//   }
+// }; 
+
 exports.getPendingApprovals = async (req, res) => {
   try {
-    // STEP 1: Logged-in employee
+    const userRole = req.user.role;
+
+    // ---------------- ADMIN HANDLING ----------------
+    if (userRole === "admin") {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        logs: [], // IMPORTANT: always return array
+      });
+    }
+
+    // ---------------- EMPLOYEE HANDLING ----------------
     const employee = await Employee.findOne({ userId: req.user.id });
 
     if (!employee) {
-      return res.status(404).json({ message: "Employee not found" });
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        logs: [],
+      });
     }
 
     const userId = employee._id;
-    const userRole = employee.role; // EMP, RM, AM, BUH
 
-    // STEP 2: Build role-based match conditions
     let approvalMatch = {};
 
-    if (userRole === "RM") {
-      // RM only needs logs where RM approval is pending
+    if (employee.role === "RM") {
       approvalMatch = {
         approvals: {
           $elemMatch: {
@@ -462,23 +562,25 @@ exports.getPendingApprovals = async (req, res) => {
         },
       };
     }
- 
-    if (userRole === "AM") {
-      // AM sees logs only if RM already approved AND AM is pending
+
+    if (employee.role === "AM") {
       approvalMatch = {
         approvals: {
           $all: [
             { $elemMatch: { role: "RM", status: "APPROVED" } },
             {
-              $elemMatch: { role: "AM", approverId: userId, status: "PENDING" },
+              $elemMatch: {
+                role: "AM",
+                approverId: userId,
+                status: "PENDING",
+              },
             },
           ],
         },
       };
     }
 
-    if (userRole === "BUH") {
-      // BUH sees logs only if RM & AM approved AND BUH is pending
+    if (employee.role === "BUH") {
       approvalMatch = {
         approvals: {
           $all: [
@@ -496,17 +598,17 @@ exports.getPendingApprovals = async (req, res) => {
       };
     }
 
-    // STEP 3: Fetch logs + populate
     const logs = await Log.find(approvalMatch)
       .populate("createdBy", "employeeId employeeName role ancestors")
       .populate("approvals.approverId", "employeeId employeeName role")
       .sort({ createdAt: -1 });
-    console.log("pend logs", logs);
-    // STEP 4: Additionally filter logs based on ancestors rule
-    const finalLogs = logs.filter((log) =>
-      log.createdBy?.ancestors?.some(
-        (ancestorId) => ancestorId.toString() === userId.toString()
-      )
+
+    const finalLogs = logs.filter(
+      (log) =>
+        Array.isArray(log.createdBy?.ancestors) &&
+        log.createdBy.ancestors.some(
+          (ancestorId) => ancestorId.toString() === userId.toString()
+        )
     );
 
     return res.status(200).json({
@@ -521,7 +623,7 @@ exports.getPendingApprovals = async (req, res) => {
       error: error.message,
     });
   }
-}; 
+};
 
 exports.getApprovedOrRejectedLogs = async (req, res) => {
   try {
