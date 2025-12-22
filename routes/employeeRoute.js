@@ -7,6 +7,7 @@ console.log("Employee routes loaded!");
 
 router.post("/upsert", authMiddleware, employeeController.upsertEmployee);
 router.post("/createLog", authMiddleware, employeeController.createLog);
+router.put("/updateLog/:id", authMiddleware, employeeController.updateLogById);
 router.get("/getEmpByRole", authMiddleware, employeeController.getEmployeesByRole);
 router.post("/:logId/approval", authMiddleware, employeeController.updateApprovalStatus);
 router.get("/:logId/getLogById", authMiddleware, employeeController.getLogById);

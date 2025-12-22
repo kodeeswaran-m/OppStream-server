@@ -108,7 +108,12 @@ exports.signup = async (req, res) => {
 
 // Login controller
 exports.login = async (req, res) => {
-  const { email, password } = req.body;
+  let { email, password } = req.body;
+
+  // Convert email to lowercase
+  email = email.toLowerCase();
+
+  console.log("email", email);
 
   const user = await User.findOne({ email });
   if (!user) return res.status(400).json({ message: "Invalid credentials" });
@@ -149,7 +154,8 @@ exports.refreshToken = async (req, res) => {
     return res.status(401).json({ message: "No refresh token" });
 
   const user = await User.findOne({ refreshToken });
-  if (!user) return res.status(403).json({ message: "Invalid refresh token" });
+  // if (!user) return res.status(403).json({ message: "Invalid refresh token" });
+  if (!user) return res.status(403).json({ message: "Session Expired." });
 
   jwt.verify(refreshToken, process.env.REFRESH_SECRET, (err, decoded) => {
     if (err) return res.status(403).json({ message: "Expired refresh token" });

@@ -1,4 +1,3 @@
-
 const mongoose = require("mongoose");
 const Log = require("../models/Log");
 const Employee = require("../models/Employee");
@@ -139,7 +138,7 @@ exports.upsertEmployee = async (req, res) => {
 exports.getEmployeesByRole = async (req, res) => {
   try {
     const userId = req.user?.id;
-    console.log("emp",userId);
+    console.log("emp", userId);
 
     if (!userId) {
       return res.status(401).json({ message: "Unauthorized. Invalid token." });
@@ -375,6 +374,114 @@ exports.createLog = async (req, res) => {
     });
   }
 };
+// GET /api/logs/:id
+exports.getLogById = async (req, res) => {
+  try {
+    const log = await Log.findById(req.params.id);
+    res.json({ success: true, log });
+  } catch (err) {
+    res.status(500).json({ success: false });
+  }
+};
+
+exports.updateLogById = async (req, res) => {
+  try {
+    // const employee = await Employee.findOne({ userId: req.user.id });
+    const employee = await Employee.findOne({ userId: req.user.id }).populate(
+      "ancestors",
+      "employeeName role employeeId"
+    );
+
+    if (!employee) {
+      return res.status(404).json({ message: "Employee not found" });
+    }
+
+    const log = await Log.findById(req.params.id);
+
+    if (!log) {
+      return res.status(404).json({ message: "Log not found" });
+    }
+
+    /* ---------------- SECURITY CHECKS ---------------- */
+
+    // Only creator can edit
+    if (log.createdBy.toString() !== employee._id.toString()) {
+      return res
+        .status(403)
+        .json({ message: "Not authorized to edit this log" });
+    }
+
+    // Check rejected status
+    const rejectedApproval = log.approvals.find((a) => a.status === "REJECTED");
+
+    if (!rejectedApproval) {
+      return res
+        .status(400)
+        .json({ message: "Only rejected logs can be edited" });
+    }
+
+    /* ---------------- UPDATE PAYLOAD ---------------- */
+
+    const { requirementType, nnDetails, oppFrom, oppTo, timeline } = req.body;
+
+    log.requirementType = requirementType;
+    log.timeline = timeline;
+
+    // Reset fields
+    log.nnDetails = undefined;
+    log.oppFrom = undefined;
+    log.oppTo = undefined;
+
+    if (requirementType === "NN") {
+      log.nnDetails = {
+        description: nnDetails?.description,
+        clientName: nnDetails?.clientName,
+        source: nnDetails?.source,
+        oppFrom: nnDetails?.oppFrom,
+      };
+    }
+
+    if (requirementType === "EE" || requirementType === "EN") {
+      log.oppFrom = {
+        projectName: oppFrom?.projectName,
+        clientName: oppFrom?.clientName,
+        projectCode: oppFrom?.projectCode,
+        urgency: oppFrom?.urgency,
+        meetingType: oppFrom?.meetingType,
+        meetingDate: oppFrom?.meetingDate,
+        meetingScreenshot: oppFrom?.meetingScreenshot,
+        peoplePresent: oppFrom?.peoplePresent || [],
+      };
+
+      log.oppTo = {
+        technologyRequired: oppTo?.technologyRequired || [],
+        techRows: oppTo?.techRows || [],
+        totalPersons: oppTo?.totalPersons,
+        category: oppTo?.category,
+        shortDescription: oppTo?.shortDescription,
+        detailedNotes: oppTo?.detailedNotes,
+      };
+    }
+
+    /* ---------------- RESET APPROVAL FLOW ---------------- */
+
+    log.approvals = getApprovalFlow(employee);
+
+    await log.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Log updated successfully",
+      log,
+    });
+  } catch (error) {
+    console.error("Error updating log:", error);
+    return res.status(500).json({
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
 
 exports.updateApprovalStatus = async (req, res) => {
   try {
@@ -462,7 +569,7 @@ exports.updateApprovalStatus = async (req, res) => {
 //         },
 //       };
 //     }
- 
+
 //     if (userRole === "AM") {
 //       // AM sees logs only if RM already approved AND AM is pending
 //       approvalMatch = {
@@ -521,7 +628,7 @@ exports.updateApprovalStatus = async (req, res) => {
 //       error: error.message,
 //     });
 //   }
-// }; 
+// };
 
 exports.getPendingApprovals = async (req, res) => {
   try {
@@ -640,22 +747,20 @@ exports.getApprovedOrRejectedLogs = async (req, res) => {
     const logs = await Log.find({
       approvals: {
         $elemMatch: {
-          approverId: loggedInEmployee._id,     // user is an approver
+          approverId: loggedInEmployee._id, // user is an approver
           status: { $in: ["APPROVED", "REJECTED"] }, // and has approved/rejected
-        }
-      }
+        },
+      },
     })
       .populate("createdBy", "employeeName employeeId role team")
       .populate("approvals.approverId", "employeeName employeeId role")
       .sort({ updatedAt: -1 });
-
 
     return res.status(200).json({
       success: true,
       count: logs.length,
       logs,
     });
-
   } catch (error) {
     console.error("Error fetching approver logs:", error);
     return res.status(500).json({
@@ -753,7 +858,6 @@ exports.getLogById = async (req, res) => {
       success: true,
       log,
     });
-
   } catch (error) {
     console.error("Error fetching log by ID:", error);
 
@@ -764,7 +868,6 @@ exports.getLogById = async (req, res) => {
     });
   }
 };
-
 
 exports.getUserApprovalCounts = async (req, res) => {
   try {
@@ -860,28 +963,20 @@ exports.getEmployeeCountsByRole = async (req, res) => {
     if (role === "VP") {
       // All employees except himself
       employees = await Employee.find({ _id: { $ne: empId } }).lean();
-    }
-
-    else if (role === "BUH") {
+    } else if (role === "BUH") {
       employees = await Employee.find({
         businessUnitId,
         _id: { $ne: empId },
       }).lean();
-    }
-
-    else if (role === "AM") {
+    } else if (role === "AM") {
       employees = await Employee.find({
         ancestors: empId,
       }).lean();
-    }
-
-    else if (role === "RM") {
+    } else if (role === "RM") {
       employees = await Employee.find({
         managerId: empId,
       }).lean();
-    }
-
-    else {
+    } else {
       // EMP → no employees
       return res.status(200).json({
         success: true,
@@ -944,7 +1039,6 @@ exports.getEmployeeCountsByRole = async (req, res) => {
   }
 };
 
-
 exports.getLogsByEmployeeId = async (req, res) => {
   try {
     const { id } = req.params;
@@ -987,4 +1081,3 @@ exports.getLogsByEmployeeId = async (req, res) => {
     });
   }
 };
-
