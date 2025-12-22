@@ -31,4 +31,11 @@ router.get("/getPendingApprovalLogs", authMiddleware, employeeController.getPend
 router.get("/getApprovedOrRejectedLogs", authMiddleware, employeeController.getApprovedOrRejectedLogs);
 router.get("/getUserApprovalCounts", authMiddleware, employeeController.getUserApprovalCounts);
 
+router.get("/getEmployeeCounts", authMiddleware, employeeController.getEmployeeCountsByRole);
+router.get(
+  "/getLogsByEmployeeId/:id",
+  authMiddleware,
+  employeeController.getLogsByEmployeeId
+);
+
 module.exports = router;
