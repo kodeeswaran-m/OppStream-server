@@ -16,7 +16,7 @@ app.use(cookieParser());
 app.use(morgan("dev"));
 app.use(
   cors({
-    origin: "https://opp-stream-client.vercel.app",
+    origin: ["https://opp-stream-client.vercel.app","http://localhost:5173"],
     credentials: true,
   })
 );

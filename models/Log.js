@@ -82,6 +82,10 @@ const logSchema = new Schema(
           enum: ["PENDING", "APPROVED", "REJECTED"],
           default: "PENDING",
         },
+        rejectionReason: {
+          type: String,
+          default: null,
+        },
         approvedAt: {
           type: Date,
         },

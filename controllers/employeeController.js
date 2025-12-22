@@ -378,62 +378,86 @@ exports.createLog = async (req, res) => {
 
 exports.updateApprovalStatus = async (req, res) => {
   try {
-    const { logId } = req.params;
-    const { status } = req.body; // APPROVED / REJECTED
+    const { approvalStatus, rejectionReason } = req.body;
+    const logId = req.params.logId;
 
-    if (!["APPROVED", "REJECTED"].includes(status)) {
-      return res.status(400).json({ message: "Invalid approval status" });
+    if (!["APPROVED", "REJECTED"].includes(approvalStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid approval status",
+      });
     }
 
-    // STEP 1: Get logged-in employee (approver)
-    const approver = await Employee.findOne({ userId: req.user.id });
-    if (!approver) {
-      return res.status(404).json({ message: "Employee not found" });
+    if (
+      approvalStatus === "REJECTED" &&
+      (!rejectionReason || !rejectionReason.trim())
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Rejection reason is required",
+      });
     }
 
-    // STEP 2: Find log
+    // 🔹 Find logged-in employee
+    const employee = await Employee.findOne({ userId: req.user.id });
+    if (!employee) {
+      return res.status(403).json({
+        success: false,
+        message: "Employee not found",
+      });
+    }
+
+    // 🔹 Find log
     const log = await Log.findById(logId);
     if (!log) {
-      return res.status(404).json({ message: "Log not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Log not found",
+      });
     }
 
-    // STEP 3: Check if this employee is part of approval chain
-    const approvalEntry = log.approvals.find(
-      (a) => a.approverId.toString() === approver._id.toString()
+    // 🔹 Match approval by EMPLOYEE ROLE (RM / AM / BUH)
+    const approval = log.approvals.find(
+      (a) =>
+        a.role === employee.role &&
+        a.approverId.toString() === employee._id.toString()
     );
 
-    if (!approvalEntry) {
+    if (!approval) {
       return res.status(403).json({
-        message: "You are not authorized to approve this log",
+        success: false,
+        message: "Not authorized",
       });
     }
 
-    // STEP 4: Prevent double approval/rejection
-    if (approvalEntry.status !== "PENDING") {
+    if (approval.status !== "PENDING") {
       return res.status(400).json({
-        message: `Already ${approvalEntry.status}`,
+        success: false,
+        message: "Approval already processed",
       });
     }
 
-    // STEP 5: Update approval fields
-    approvalEntry.status = status;
-    approvalEntry.approvedAt = new Date();
-    approvalEntry.approverName = approver.employeeName;
+    approval.status = approvalStatus;
+    approval.approvedAt = new Date();
+    approval.approverName = employee.employeeName;
+    approval.rejectionReason =
+      approvalStatus === "REJECTED" ? rejectionReason : null;
 
     await log.save();
 
     return res.status(200).json({
+      success: true,
       message: "Approval updated successfully",
-      log,
     });
   } catch (error) {
-    console.error("Approval update error:", error);
+    console.error("Approval error:", error);
     return res.status(500).json({
+      success: false,
       message: "Server error",
-      error: error.message,
     });
   }
 };
+
 
 // exports.getPendingApprovals = async (req, res) => {
 //   try {
@@ -627,8 +651,8 @@ exports.getPendingApprovals = async (req, res) => {
 
 exports.getApprovedOrRejectedLogs = async (req, res) => {
   try {
-    // 1️⃣ Find logged-in employee
     const loggedInEmployee = await Employee.findOne({ userId: req.user.id });
+
     if (!loggedInEmployee) {
       return res.status(404).json({
         success: false,
@@ -636,35 +660,46 @@ exports.getApprovedOrRejectedLogs = async (req, res) => {
       });
     }
 
-    // 2️⃣ Fetch logs where this user is an approver
     const logs = await Log.find({
       approvals: {
         $elemMatch: {
-          approverId: loggedInEmployee._id,     // user is an approver
-          status: { $in: ["APPROVED", "REJECTED"] }, // and has approved/rejected
-        }
-      }
+          approverId: loggedInEmployee._id,
+          status: { $in: ["APPROVED", "REJECTED"] },
+        },
+      },
     })
       .populate("createdBy", "employeeName employeeId role team")
       .populate("approvals.approverId", "employeeName employeeId role")
       .sort({ updatedAt: -1 });
 
+    // Extract current user's approval info
+    const formattedLogs = logs.map((log) => {
+      const myApproval = log.approvals.find(
+        (a) =>
+          a.approverId._id.toString() ===
+          loggedInEmployee._id.toString()
+      );
+
+      return {
+        ...log.toObject(),
+        myApproval, // contains status + rejectionReason
+      };
+    });
 
     return res.status(200).json({
       success: true,
-      count: logs.length,
-      logs,
+      count: formattedLogs.length,
+      logs: formattedLogs,
     });
-
   } catch (error) {
     console.error("Error fetching approver logs:", error);
     return res.status(500).json({
       success: false,
       message: "Server error",
-      error: error.message,
     });
   }
 };
+
 
 exports.getVisibleLogs = async (req, res) => {
   try {
