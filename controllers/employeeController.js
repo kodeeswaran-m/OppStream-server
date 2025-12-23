@@ -838,26 +838,166 @@ exports.getVisibleLogs = async (req, res) => {
   }
 };
 
+// exports.getReportingEmployeeLogs = async (req, res) => {
+//   try {
+//     // STEP 1: Find logged-in employee using req.user.id
+//     const employee = await Employee.findOne({ userId: req.user.id });
+
+//     if (!employee) {
+//       return res.status(404).json({ message: "Employee not found" });
+//     }
+
+//     // STEP 2: Fetch logs where ONLY the logged-in employee is in visibleTo
+//     const logs = await Log.find({
+//       visibleTo: { $in: [employee._id] },
+//     })
+//       .populate("createdBy", "employeeName employeeId employeeEmail role team")
+//       .sort({ createdAt: -1 });
+
+//     return res.status(200).json({
+//       success: true,
+//       count: logs.length,
+//       logs,
+//     });
+//   } catch (error) {
+//     console.error("Error fetching logs:", error);
+//     return res.status(500).json({
+//       message: "Server error",
+//       error: error.message,
+//     });
+//   }
+// };
+
 exports.getReportingEmployeeLogs = async (req, res) => {
   try {
-    // STEP 1: Find logged-in employee using req.user.id
-    const employee = await Employee.findOne({ userId: req.user.id });
+    // STEP 1: Current employee
+    const currentEmployee = await Employee.findOne({
+      userId: req.user.id,
+    });
 
-    if (!employee) {
+    if (!currentEmployee) {
       return res.status(404).json({ message: "Employee not found" });
     }
 
-    // STEP 2: Fetch logs where ONLY the logged-in employee is in visibleTo
+    const { role, _id } = currentEmployee;
+
+    // STEP 2: Find all employees under current user (hierarchy)
+    let employees = [];
+
+    if (role === "BUH") {
+      // Everyone under BUH
+      employees = await Employee.find({
+        ancestors: _id,
+      });
+    } else if (role === "AM") {
+      // RMs + EMPs under AM
+      employees = await Employee.find({
+        ancestors: _id,
+        role: { $in: ["RM", "EMP"] },
+      });
+    } else if (role === "RM") {
+      // EMPs under RM
+      employees = await Employee.find({
+        managerId: _id,
+        role: "EMP",
+      });
+    } else {
+      // EMP → only himself
+      employees = [currentEmployee];
+    }
+
+    // Include self for BUH / AM / RM
+    if (role !== "EMP") {
+      employees.push(currentEmployee);
+    }
+
+    const employeeIds = employees.map((e) => e._id);
+
+    // STEP 3: Fetch all logs visible to current user
     const logs = await Log.find({
-      visibleTo: { $in: [employee._id] },
+      visibleTo: _id,
+      createdBy: { $in: employeeIds },
     })
-      .populate("createdBy", "employeeName employeeId employeeEmail role team")
+      .populate("createdBy", "employeeName employeeId role managerId")
       .sort({ createdAt: -1 });
 
+    // STEP 4: Index logs by employeeId
+    const logsByEmployee = {};
+
+    logs.forEach((log) => {
+      const empId = log.createdBy._id.toString();
+      if (!logsByEmployee[empId]) {
+        logsByEmployee[empId] = [];
+      }
+
+      logsByEmployee[empId].push({
+        requirementType:log.requirementType,
+        projectName: log.oppFrom?.projectName,
+        clientName: log.oppFrom?.clientName,
+        projectCode: log.oppFrom?.projectCode,
+        urgency: log.oppFrom?.urgency,
+        expectedStartDate:log.timeline?.expectedStart,
+        expectedEndDate:log.timeline?.expectedEnd,
+      });
+    });
+
+    // STEP 5: Build hierarchy
+    const amMap = {};
+    const rmMap = {};
+
+    employees.forEach((emp) => {
+      // ACCOUNT MANAGER
+      if (emp.role === "AM") {
+        if (!amMap[emp._id]) {
+          amMap[emp._id] = {
+            accountManagerId: emp.employeeId,
+            accountManagerName: emp.employeeName,
+            logs: logsByEmployee[emp._id] || [],
+            reportingManagers: [],
+          };
+        }
+      }
+
+      // REPORTING MANAGER
+      if (emp.role === "RM") {
+        rmMap[emp._id] = {
+          reportingManagerId: emp.employeeId,
+          reportingManagerName: emp.employeeName,
+          logs: logsByEmployee[emp._id] || [],
+          employees: [],
+          managerId: emp.managerId?.toString(),
+        };
+      }
+    });
+
+    // STEP 6: Attach employees to RM
+    employees.forEach((emp) => {
+      if (emp.role === "EMP" && emp.managerId) {
+        const rm = rmMap[emp.managerId.toString()];
+        if (rm) {
+          rm.employees.push({
+            employeeId: emp.employeeId,
+            employeeName: emp.employeeName,
+            logs: logsByEmployee[emp._id] || [],
+          });
+        }
+      }
+    });
+
+    // STEP 7: Attach RMs to AMs
+    Object.values(rmMap).forEach((rm) => {
+      const am = amMap[rm.managerId];
+      if (am) {
+        am.reportingManagers.push(rm);
+      }
+    });
+
+    // STEP 8: Final response
+    const responseData = Object.values(amMap);
+    console.log("response data : ", responseData);
     return res.status(200).json({
       success: true,
-      count: logs.length,
-      logs,
+      logs: responseData,
     });
   } catch (error) {
     console.error("Error fetching logs:", error);
