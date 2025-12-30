@@ -2,18 +2,19 @@ const BusinessUnit = require("../models/BusinessUnit");
 
 const Log = require("../models/Log"); // Assuming you have a Log model
 
-const User=require("../models/User");
+const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 
 const Employee = require("../models/Employee");
-
 
 exports.createBusinessUnit = async (req, res) => {
   try {
     const { name } = req.body;
 
     if (!name) {
-      return res.status(400).json({ message: "Business unit name is required" });
+      return res
+        .status(400)
+        .json({ message: "Business unit name is required" });
     }
 
     // Check duplicate
@@ -34,10 +35,11 @@ exports.createBusinessUnit = async (req, res) => {
   }
 };
 
-
 exports.getAllBusinessUnits = async (req, res) => {
   try {
-    const businessUnits = await BusinessUnit.find({}, "_id name").sort({ createdAt: -1 });
+    const businessUnits = await BusinessUnit.find({}, "_id name").sort({
+      createdAt: -1,
+    });
 
     res.status(200).json({
       message: "Business Units fetched successfully",
@@ -71,7 +73,6 @@ exports.getDashboardData = async (req, res) => {
   }
 };
 
-
 exports.createUser = async (req, res) => {
   const {
     username,
@@ -82,7 +83,16 @@ exports.createUser = async (req, res) => {
     employeeId,
     businessUnitId,
   } = req.body;
-
+  console.log(
+    "demo",
+    username,
+    email,
+    password,
+    confirmPassword,
+    role,
+    employeeId,
+    businessUnitId
+  );
   // 1) Password check
   if (password !== confirmPassword) {
     return res.status(400).json({ message: "Passwords do not match" });
@@ -147,14 +157,11 @@ exports.createUser = async (req, res) => {
       message: "User created successfully",
       userId: savedUser._id,
     });
-
   } catch (err) {
     console.error(err);
     return res.status(500).json({ message: "Server error" });
   }
 };
-
-
 
 exports.getAllUsers = async (req, res) => {
   try {
@@ -180,8 +187,8 @@ exports.getAllUsers = async (req, res) => {
         $or: [
           { employeeId: regex },
           { employeeName: regex },
-          { employeeEmail: regex }
-        ]
+          { employeeEmail: regex },
+        ],
       }).select("userId");
 
       const employeeUserIds = employees.map((emp) => emp.userId);
@@ -189,7 +196,7 @@ exports.getAllUsers = async (req, res) => {
       query.$or = [
         { username: regex },
         { email: regex },
-        { _id: { $in: employeeUserIds } }  // match by employee fields
+        { _id: { $in: employeeUserIds } }, // match by employee fields
       ];
     }
 
@@ -208,8 +215,9 @@ exports.getAllUsers = async (req, res) => {
     // Attach employee details only if not admin
     const userIds = users.map((u) => u._id);
 
-    const employees = await Employee.find({ userId: { $in: userIds } })
-      .select("userId employeeId employeeName role businessUnitId");
+    const employees = await Employee.find({ userId: { $in: userIds } }).select(
+      "userId employeeId employeeName role businessUnitId"
+    );
 
     const employeeMap = {};
     employees.forEach((emp) => {
@@ -229,7 +237,7 @@ exports.getAllUsers = async (req, res) => {
 
     return res.status(200).json({
       message: "Users fetched successfully",
-      success:true,
+      success: true,
       total,
       page: Number(page),
       limit: Number(limit),
@@ -239,7 +247,7 @@ exports.getAllUsers = async (req, res) => {
     console.error("Error fetching users:", error);
     return res.status(500).json({
       message: "Internal server error",
-      success:false
+      success: false,
     });
   }
 };
@@ -275,13 +283,13 @@ exports.deleteUser = async (req, res) => {
     await Employee.deleteOne({ userId });
 
     return res.status(200).json({
-      success:true,
+      success: true,
       message: "User and related employee data deleted successfully",
     });
   } catch (error) {
     console.error("Error deleting user:", error);
     return res.status(500).json({
-      success:false,
+      success: false,
       message: "Internal server error",
     });
   }
@@ -367,10 +375,10 @@ exports.updateUser = async (req, res) => {
       // If role changed → update role mapping
       if (roleChanged) {
         const roleMapping = {
-          "VP": "BUH",
+          VP: "BUH",
           "associate manager": "AM",
           "reporting manager": "RM",
-          "employee": "EMP",
+          employee: "EMP",
         };
 
         updateEmployeeData.role = roleMapping[role];
@@ -390,7 +398,6 @@ exports.updateUser = async (req, res) => {
       message: "User updated successfully",
       user: updatedUser,
     });
-
   } catch (error) {
     console.error("Error updating user:", error);
 
@@ -400,7 +407,6 @@ exports.updateUser = async (req, res) => {
     });
   }
 };
-
 
 exports.getUserById = async (req, res) => {
   try {
@@ -432,7 +438,6 @@ exports.getUserById = async (req, res) => {
       user,
       employee: employeeDetails || null,
     });
-
   } catch (error) {
     console.error("Error fetching user by ID:", error);
     return res.status(500).json({
